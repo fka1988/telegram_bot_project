@@ -91,7 +91,24 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     test_dir = BASE_DIR / str(user_id) / test_id
     test_dir.mkdir(parents=True, exist_ok=True)
 
-    # Обработка файла
+    text = update.message.text
+
+    # 👉 Проверяем, выбрал ли пользователь переход к ключу
+    if text == "✅ Перейти к вводу ключа":
+        # Предлагаем выбрать формат обратной связи
+        keyboard = [["📊 Краткий", "📋 Развёрнутый", "📚 Полный"]]
+        await update.message.reply_text(
+            "Выберите тип обратной связи, которую будет получать ученик после прохождения теста:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ASK_FEEDBACK_TYPE
+
+    # 👉 Если нажал "➕ Добавить ещё" — просто просим отправить файл
+    if text == "➕ Добавить ещё":
+        await update.message.reply_text("📎 Пожалуйста, отправьте ещё один файл (изображение или PDF).")
+        return HANDLE_TEST_UPLOAD
+
+    # Загрузка файла
     if update.message.document:
         file = update.message.document
     elif update.message.photo:
@@ -115,6 +132,7 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
     )
     return HANDLE_TEST_UPLOAD
+
 
 # Сохранение ключей
 async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):

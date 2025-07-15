@@ -1,3 +1,4 @@
+
 import os
 import json
 import random
@@ -98,7 +99,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(data)
 
     await update.message.reply_text(
-        f"✅ Тест сохранён как *{file_name}*.\nКод теста: `{test_code}`",
+        f"✅ Тест сохранён как *{file_name}*.
+Код теста: `{test_code}`",
         parse_mode="Markdown"
     )
 
@@ -120,7 +122,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(data)
 
     await update.message.reply_text(
-        f"✅ Изображение теста сохранено.\nКод теста: `{test_code}`",
+        f"✅ Изображение теста сохранено.
+Код теста: `{test_code}`",
         parse_mode="Markdown"
     )
 
@@ -135,9 +138,9 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("resset", resset))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex("👨‍🏫 Я учитель|👨‍🎓 Я ученик"), handle_role_selection))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.ALL, handle_role_selection))
 
     app.run_polling()

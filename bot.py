@@ -70,6 +70,29 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="Markdown"
     )
     return ConversationHandler.END
+async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("role") != "teacher":
+        await update.message.reply_text("❌ Только учитель может сохранять ключи ответов.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("❗ Пожалуйста, введите команду в формате:\n`/key <код_теста> <ключ_ответов>`", parse_mode="Markdown")
+        return
+
+    test_code = context.args[0]
+    answers = " ".join(context.args[1:])
+
+    file_path = f"test_data/{test_code}"
+
+    if not os.path.exists(file_path):
+        await update.message.reply_text("❌ Тест с указанным кодом не найден. Убедитесь, что вы указали правильный код.")
+        return
+
+    key_path = f"{file_path}.key"
+    with open(key_path, "w", encoding="utf-8") as f:
+        f.write(answers)
+
+    await update.message.reply_text(f"✅ Ключ для теста *{test_code}* успешно сохранён.\nОтветы: `{answers}`", parse_mode="Markdown")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await start(update, context)
@@ -89,8 +112,10 @@ def main():
 
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("reset", reset))
-
+    application.add_handler(CommandHandler("key", save_key))
+    
     application.run_polling()
+    
 
 if __name__ == "__main__":
     main()

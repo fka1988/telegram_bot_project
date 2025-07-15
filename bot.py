@@ -1,6 +1,6 @@
 import os
 import logging
-from uuid import uuid4
+import random
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
@@ -16,6 +16,17 @@ SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD = range(3)
 
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
+
+def generate_unique_test_code(user_id: int) -> str:
+    """Генерирует уникальный 4-значный код теста для данного пользователя."""
+    user_dir = BASE_DIR / str(user_id)
+    user_dir.mkdir(exist_ok=True)
+    existing_codes = {f.name for f in user_dir.iterdir() if f.is_dir()}
+    
+    while True:
+        code = str(random.randint(1000, 9999))
+        if code not in existing_codes:
+            return code
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
@@ -37,7 +48,7 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text == TEACHER_CODE:
         context.user_data["role"] = "teacher"
-        context.user_data["test_id"] = str(uuid4())
+        context.user_data["test_id"] = generate_unique_test_code(update.message.from_user.id)
         await update.message.reply_text(
             "✅ Вы зарегистрированы как учитель.\n\nПожалуйста, отправьте файл теста (PDF или изображение)."
         )
@@ -48,7 +59,7 @@ async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
-    test_id = context.user_data.get("test_id", str(uuid4()))
+    test_id = context.user_data.get("test_id")
     test_dir = BASE_DIR / str(user_id) / test_id
     test_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +81,7 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="Markdown"
     )
     return ConversationHandler.END
+
 async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("role") != "teacher":
         await update.message.reply_text("❌ Только учитель может сохранять ключи ответов.")
@@ -100,10 +112,8 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Ключ для теста *{test_code}* успешно сохранён.\nОтветы: `{answers}`", parse_mode="Markdown")
 
-
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await start(update, context)
-# Создание папки для хранения ключей ответов
 
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -120,10 +130,9 @@ def main():
 
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("reset", reset))
-    application.add_handler(CommandHandler("key", save_key))  # <-- перемещено выше run_polling
+    application.add_handler(CommandHandler("key", save_key))
 
     application.run_polling()
-    
 
 if __name__ == "__main__":
     main()

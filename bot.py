@@ -96,7 +96,8 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await start(update, context)
-
+# Создание папки для хранения ключей ответов
+Path("test_data").mkdir(exist_ok=True)
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 

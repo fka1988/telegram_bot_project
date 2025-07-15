@@ -1,12 +1,12 @@
 import os
+import random
 from telegram import (
-    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
+    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler,
     filters, ContextTypes
 )
-import random
 
 TEACHER_CODE = "2308"
 
@@ -32,7 +32,9 @@ async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def verify_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text.strip()
     if code == TEACHER_CODE:
-        await update.message.reply_text("✅ Вы зарегистрированы как учитель.\n\n📌 Если вы отправляете PDF-файл, убедитесь, что он содержит весь тест.\nЕсли у вас изображения — вы сможете добавить несколько.\n\n📎 Пожалуйста, отправьте файл теста (PDF или изображение).")
+        await update.message.reply_text(
+            "✅ Вы зарегистрированы как учитель.\n\n📌 Если вы отправляете PDF-файл, убедитесь, что он содержит весь тест.\nЕсли у вас изображения — вы сможете добавить несколько.\n\n📎 Пожалуйста, отправьте файл теста (PDF или изображение)."
+        )
         return WAIT_FOR_FILE
     else:
         context.user_data["role"] = "student"
@@ -43,13 +45,28 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = update.message.document or update.message.photo[-1]
     test_id = str(random.randint(1000, 9999))
     context.user_data["test_id"] = test_id
-
     os.makedirs(test_id, exist_ok=True)
-    file_path = os.path.join(test_id, file.file_name if file.file_name else f"{file.file_id}.jpg")
+
+    if update.message.document:
+        file_ext = os.path.splitext(file.file_name or "")[1].lower()
+    else:
+        file_ext = ".jpg"
+
+    filename = file.file_name if update.message.document and file.file_name else f"{file.file_id}{file_ext}"
+    file_path = os.path.join(test_id, filename)
     await file.get_file().download_to_drive(file_path)
 
-    await update.message.reply_text(f"✅ Файл {os.path.basename(file_path)} сохранён.\nКод теста: {test_id}\n\nХотите загрузить ещё изображение или перейти к вводу ключа?", reply_markup=ReplyKeyboardMarkup([["➕ Добавить ещё", "✅ Перейти к вводу ключа"]], one_time_keyboard=True))
-    return MORE_IMAGES
+    await update.message.reply_text(f"✅ Файл {filename} сохранён.\nКод теста: {test_id}")
+
+    if file_ext == ".pdf":
+        await update.message.reply_text("📌 Так как это PDF, переходите сразу к вводу ключа.\nВведите ключ ответов (например: abcdabcdabcd):")
+        return ENTER_ANSWER_KEY
+    else:
+        await update.message.reply_text(
+            "Хотите загрузить ещё изображение или перейти к вводу ключа?",
+            reply_markup=ReplyKeyboardMarkup([["➕ Добавить ещё", "✅ Перейти к вводу ключа"]], one_time_keyboard=True)
+        )
+        return MORE_IMAGES
 
 async def more_images_or_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "добавить" in update.message.text.lower():
@@ -153,7 +170,6 @@ def main():
     import dotenv
     dotenv.load_dotenv()
     token = os.getenv("BOT_TOKEN")
-
     app = ApplicationBuilder().token(token).build()
 
     conv = ConversationHandler(

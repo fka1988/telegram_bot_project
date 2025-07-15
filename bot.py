@@ -1,22 +1,27 @@
 import os
-import random
 import shutil
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ConversationHandler, filters, ContextTypes
+import random
+from telegram import (
+    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler,
+    ContextTypes, filters
+)
+from dotenv import load_dotenv
 
+load_dotenv()
 TEACHER_CODE = "2308"
 
 CHOOSING_ROLE, VERIFY_CODE, WAIT_FOR_FILE, MORE_IMAGES, ENTER_ANSWER_KEY, SELECT_FEEDBACK_MODE, WAIT_FOR_TEST_CODE, WAIT_FOR_ANSWERS = range(8)
 
-# ───── Команда /start ─────
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
     await update.message.reply_text("Выберите вашу роль:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return CHOOSING_ROLE
+
 
 async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = update.message.text
@@ -29,14 +34,12 @@ async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:", reply_markup=ReplyKeyboardRemove())
         return WAIT_FOR_TEST_CODE
 
+
 async def verify_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text.strip()
     if code == TEACHER_CODE:
         await update.message.reply_text(
-            "✅ Вы зарегистрированы как учитель.\n\n"
-            "📌 Если вы отправляете PDF-файл, убедитесь, что он содержит весь тест.\n"
-            "Если у вас изображения — вы сможете добавить несколько.\n\n"
-            "📎 Пожалуйста, отправьте файл теста (PDF или изображение)."
+            "✅ Вы зарегистрированы как учитель.\n\n📌 Если вы отправляете PDF-файл, убедитесь, что он содержит весь тест.\nЕсли у вас изображения — вы сможете добавить несколько.\n\n📎 Пожалуйста, отправьте файл теста (PDF или изображение)."
         )
         return WAIT_FOR_FILE
     else:
@@ -44,32 +47,37 @@ async def verify_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.\nВведите код теста:")
         return WAIT_FOR_TEST_CODE
 
-# ───── Обработка загруженного файла ─────
+
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = update.message.document or update.message.photo[-1]
     test_id = str(random.randint(1000, 9999))
     context.user_data["test_id"] = test_id
-
     os.makedirs(test_id, exist_ok=True)
-    filename = file.file_name if hasattr(file, 'file_name') and file.file_name else f"{file.file_id}.jpg"
-    file_path = os.path.join(test_id, filename)
-    await file.get_file().download_to_drive(file_path)
 
-    # Если файл PDF — сразу переходим к ключу
-    if filename.lower().endswith(".pdf"):
+    if update.message.document:
+        filename = update.message.document.file_name or f"{file.file_id}.pdf"
+        file_path = os.path.join(test_id, filename)
+        await update.message.document.get_file().download_to_drive(file_path)
+
         await update.message.reply_text(
-            f"✅ Файл {filename} сохранён.\nКод теста: {test_id}\n\n"
-            "Введите ключ ответов (например: abcdabcdabcd):",
+            f"✅ Файл {filename} сохранён.\nКод теста: {test_id}\n\n🔑 Пожалуйста, введите ключ ответов (например: abcdabcdabcd):",
             reply_markup=ReplyKeyboardRemove()
         )
         return ENTER_ANSWER_KEY
-    else:
+
+    elif update.message.photo:
+        file_path = os.path.join(test_id, f"{file.file_id}.jpg")
+        await file.get_file().download_to_drive(file_path)
+
         await update.message.reply_text(
-            f"✅ Файл {filename} сохранён.\nКод теста: {test_id}\n\n"
-            "Хотите загрузить ещё изображение или перейти к вводу ключа?",
-            reply_markup=ReplyKeyboardMarkup([["➕ Добавить ещё", "✅ Перейти к вводу ключа"]], one_time_keyboard=True)
+            f"✅ Изображение сохранено.\nКод теста: {test_id}\n\nХотите загрузить ещё изображение или перейти к вводу ключа?",
+            reply_markup=ReplyKeyboardMarkup(
+                [["➕ Добавить ещё", "✅ Перейти к вводу ключа"]],
+                one_time_keyboard=True
+            )
         )
         return MORE_IMAGES
+
 
 async def more_images_or_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "добавить" in update.message.text.lower():
@@ -79,7 +87,7 @@ async def more_images_or_key(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Введите ключ ответов (например: abcdabcdabcd):", reply_markup=ReplyKeyboardRemove())
         return ENTER_ANSWER_KEY
 
-# ───── Сохранение ключа ─────
+
 async def save_answer_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key = update.message.text.strip().lower()
     test_id = context.user_data["test_id"]
@@ -91,6 +99,7 @@ async def save_answer_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ["📘 Полный (с правильными ответами)"]]
     await update.message.reply_text("Выберите формат обратной связи для ученика:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return SELECT_FEEDBACK_MODE
+
 
 async def save_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = update.message.text
@@ -108,7 +117,7 @@ async def save_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"✅ Ключ сохранён. Тест состоит из {len(context.user_data['key'])} вопросов.")
     return ConversationHandler.END
 
-# ───── Логика ученика ─────
+
 async def receive_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     test_id = update.message.text.strip()
     context.user_data["test_id"] = test_id
@@ -119,6 +128,7 @@ async def receive_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("📨 Пожалуйста, отправьте свои ответы (например: abcdabcdabcd):")
     return WAIT_FOR_ANSWERS
+
 
 async def receive_answers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answers = update.message.text.strip().lower()
@@ -148,41 +158,34 @@ async def receive_answers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mode == "short":
         text = f"✅ Ваш результат: {score} из {len(key)}"
     elif mode == "detailed":
-        feedback = [f"{i+1}) {'✅' if a == k else '❌'}" for i, (a, k) in enumerate(zip(answers, key))]
+        feedback = [f"{i + 1}) {'✅' if a == k else '❌'}" for i, (a, k) in enumerate(zip(answers, key))]
         text = "\n".join(feedback)
-    else:
-        feedback = [f"{i+1}) {'✅' if a == k else f'❌ Правильный ответ: {k}'}" for i, (a, k) in enumerate(zip(answers, key))]
+    else:  # full
+        feedback = [
+            f"{i + 1}) {'✅' if a == k else f'❌ Правильный ответ: {k}'}"
+            for i, (a, k) in enumerate(zip(answers, key))
+        ]
         text = "\n".join(feedback)
 
     await update.message.reply_text(text)
     return ConversationHandler.END
 
-# ───── /reset ─────
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return await start(update, context)
 
-# ───── /cleardata ─────
-async def clear_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("role") != "teacher":
-        await update.message.reply_text("❌ Эта команда доступна только учителям.")
-        return
 
-    deleted = 0
-    for folder in os.listdir():
-        if folder.isdigit() and os.path.isdir(folder) and len(folder) == 4:
-            try:
-                shutil.rmtree(folder)
-                deleted += 1
-            except Exception as e:
-                print(f"Ошибка при удалении {folder}: {e}")
+async def cleardata(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count = 0
+    for name in os.listdir():
+        if name.isdigit() and os.path.isdir(name):
+            shutil.rmtree(name)
+            count += 1
+    await update.message.reply_text(f"🧹 Удалено {count} тест(ов).")
 
-    await update.message.reply_text(f"🧹 Удалено {deleted} тест(ов).")
 
-# ───── main() ─────
 def main():
-    import dotenv
-    dotenv.load_dotenv()
     token = os.getenv("BOT_TOKEN")
     app = ApplicationBuilder().token(token).build()
 
@@ -203,8 +206,9 @@ def main():
     )
 
     app.add_handler(conv)
-    app.add_handler(CommandHandler("cleardata", clear_data))
+    app.add_handler(CommandHandler("cleardata", cleardata))
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

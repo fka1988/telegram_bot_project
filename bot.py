@@ -1,97 +1,96 @@
-
 import os
+import logging
+from uuid import uuid4
+from pathlib import Path
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, ConversationHandler
+
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 load_dotenv()
-
-TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 TEACHER_CODE = "2308"
 
-ROLE, AUTH_TEACHER, HANDLE_FILE = range(3)
+SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD = range(3)
 
-user_roles = {}
+BASE_DIR = Path("tests")
+BASE_DIR.mkdir(exist_ok=True)
 
-start_keyboard = [[KeyboardButton("👨‍🏫 Я учитель")], [KeyboardButton("🎓 Я ученик")]]
-start_markup = ReplyKeyboardMarkup(start_keyboard, resize_keyboard=True)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
+    await update.message.reply_text(
+        "Выберите вашу роль:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    return SELECT_ROLE
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Выберите вашу роль:", reply_markup=start_markup)
-    return ROLE
-
-async def role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     role = update.message.text
-    user_id = update.effective_user.id
-
     if role == "👨‍🏫 Я учитель":
-        await update.message.reply_text("Введите код учителя:")
-        return AUTH_TEACHER
+        await update.message.reply_text("Введите код для подтверждения:")
+        return TEACHER_AUTH
     else:
-        user_roles[user_id] = "student"
-        await update.message.reply_text("Вы зарегистрированы как ученик.")
+        await update.message.reply_text("✅ Вы зарегистрированы как ученик.")
         return ConversationHandler.END
 
-async def auth_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    code = update.message.text.strip()
-
-    if code == TEACHER_CODE:
-        user_roles[user_id] = "teacher"
-        await update.message.reply_text("✅ Вы зарегистрированы как учитель.
-
-Отправьте файл с тестом (PDF или изображение).")
-        return HANDLE_FILE
+async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if update.message.text == TEACHER_CODE:
+        context.user_data["role"] = "teacher"
+        context.user_data["test_id"] = str(uuid4())
+        await update.message.reply_text(
+            "✅ Вы зарегистрированы как учитель.\n\nПожалуйста, отправьте файл теста (PDF или изображение)."
+        )
+        return HANDLE_TEST_UPLOAD
     else:
-        user_roles[user_id] = "student"
         await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.")
         return ConversationHandler.END
 
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_roles.get(user_id) != "teacher":
-        await update.message.reply_text("⛔️ Только учителя могут загружать тесты.")
-        return ConversationHandler.END
+async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.message.from_user.id
+    test_id = context.user_data.get("test_id", str(uuid4()))
+    test_dir = BASE_DIR / str(user_id) / test_id
+    test_dir.mkdir(parents=True, exist_ok=True)
 
-    file = update.message.document or update.message.photo[-1] if update.message.photo else None
+    if update.message.document:
+        file = update.message.document
+    elif update.message.photo:
+        file = update.message.photo[-1]
+    else:
+        await update.message.reply_text("Пожалуйста, отправьте PDF-файл или изображение.")
+        return HANDLE_TEST_UPLOAD
 
-    if not file:
-        await update.message.reply_text("Пожалуйста, отправьте PDF или изображение.")
-        return HANDLE_FILE
+    file_obj = await file.get_file()
+    file_name = file.file_name if hasattr(file, "file_name") and file.file_name else f"{file.file_id}.jpg"
+    file_path = test_dir / file_name
+    await file_obj.download_to_drive(custom_path=str(file_path))
 
-    file_id = file.file_id
-    file_obj = await context.bot.get_file(file_id)
-
-    folder_path = f"uploaded_tests/{user_id}"
-    os.makedirs(folder_path, exist_ok=True)
-
-    file_name = update.message.document.file_name if update.message.document else f"image_{file_id}.jpg"
-    file_path = os.path.join(folder_path, file_name)
-
-    await file_obj.download_to_drive(file_path)
-
-    await update.message.reply_text(f"✅ Тест сохранён как *{file_name}*.", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"✅ Тест сохранён как *{file_name}*.\nКод теста: `{test_id}`",
+        parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пожалуйста, нажмите /start для начала.", reply_markup=start_markup)
-    return ConversationHandler.END
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await start(update, context)
 
 def main():
-    app = Application.builder().token(TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ROLE: [MessageHandler(filters.TEXT, role_chosen)],
-            AUTH_TEACHER: [MessageHandler(filters.TEXT & ~filters.COMMAND, auth_teacher)],
-            HANDLE_FILE: [MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file)],
+            SELECT_ROLE: [MessageHandler(filters.TEXT, select_role)],
+            TEACHER_AUTH: [MessageHandler(filters.TEXT, teacher_auth)],
+            HANDLE_TEST_UPLOAD: [MessageHandler(filters.Document.ALL | filters.PHOTO, handle_test_upload)],
         },
-        fallbacks=[CommandHandler("resset", reset)],
+        fallbacks=[CommandHandler("reset", reset)],
     )
 
-    app.add_handler(conv_handler)
-    app.run_polling()
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("reset", reset))
+
+    application.run_polling()
 
 if __name__ == "__main__":
     main()

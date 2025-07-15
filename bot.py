@@ -24,7 +24,7 @@ SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE =
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
 
-# Команда /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
     await update.message.reply_text(
@@ -64,11 +64,11 @@ async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return HANDLE_TEST_UPLOAD
     else:
-        await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.")
+        await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:")
         context.user_data["role"] = "student"
         return ConversationHandler.END
 
-# Обработка загрузки тестов
+# Обработка загрузки теста
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
     test_id = context.user_data["test_id"]
@@ -91,15 +91,15 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return ADD_OR_KEY
 
-# Выбор между загрузкой ещё и вводом ключа
+# Добавить ещё или ввести ключ
 async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
 
     if "ещё" in text:
         await update.message.reply_text("Отправьте следующее изображение.")
         return HANDLE_TEST_UPLOAD
 
-    elif "ключ" in text.lower():
+    elif "ключ" in text:
         await update.message.reply_text(
             "Введите ключ ответов (например: abcdabcdabcd):",
             reply_markup=ReplyKeyboardRemove()
@@ -110,7 +110,7 @@ async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return ADD_OR_KEY
 
-# Ввод ключа + выбор типа обратной связи
+# Ввод ключа и выбор обратной связи
 async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["answers"] = update.message.text.strip()
 
@@ -125,7 +125,7 @@ async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return ConversationHandler.END
 
-# Команда /key (ручной ввод)
+# /key — сохранить ключ вручную
 async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("role") != "teacher":
         await update.message.reply_text("❌ Только учитель может сохранять ключи.")
@@ -157,7 +157,7 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Ключ для теста {test_code} успешно сохранён.\nОтветы: {answers}\nТест состоит из {count} ответов на вопросы."
     )
 
-# Команда /reset
+# /reset
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return await start(update, context)
@@ -171,7 +171,10 @@ def main():
         states={
             SELECT_ROLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_role)],
             TEACHER_AUTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, teacher_auth)],
-            HANDLE_TEST_UPLOAD: [MessageHandler(filters.Document.ALL | filters.PHOTO, handle_test_upload)],
+            HANDLE_TEST_UPLOAD: [
+                MessageHandler(filters.Document.ALL | filters.PHOTO, handle_test_upload),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_or_enter_key),  # 👈 важно
+            ],
             ADD_OR_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_or_enter_key)],
             ENTER_FEEDBACK_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_feedback_mode)],
         },

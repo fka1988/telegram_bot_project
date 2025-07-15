@@ -1,10 +1,17 @@
 import os
 import logging
-import random
 from pathlib import Path
 from dotenv import load_dotenv
+from uuid import uuid4
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, ConversationHandler
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+)
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
@@ -12,22 +19,12 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TEACHER_CODE = "2308"
 
-SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD = range(3)
+SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, AWAIT_NEXT_ACTION = range(4)
 
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
 
-def generate_unique_test_code(user_id: int) -> str:
-    """Генерирует уникальный 4-значный код теста для данного пользователя."""
-    user_dir = BASE_DIR / str(user_id)
-    user_dir.mkdir(exist_ok=True)
-    existing_codes = {f.name for f in user_dir.iterdir() if f.is_dir()}
-    
-    while True:
-        code = str(random.randint(1000, 9999))
-        if code not in existing_codes:
-            return code
-
+# ⬇ /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
     await update.message.reply_text(
@@ -36,6 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return SELECT_ROLE
 
+# ⬇ Выбор роли
 async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     role = update.message.text
     if role == "👨‍🏫 Я учитель":
@@ -45,18 +43,23 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("✅ Вы зарегистрированы как ученик.")
         return ConversationHandler.END
 
+# ⬇ Проверка кода учителя
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text == TEACHER_CODE:
         context.user_data["role"] = "teacher"
-        context.user_data["test_id"] = generate_unique_test_code(update.message.from_user.id)
+        context.user_data["test_id"] = str(uuid4().int)[:4]  # Генерация 4-значного кода
         await update.message.reply_text(
-            "✅ Вы зарегистрированы как учитель.\n\nПожалуйста, отправьте файл теста (PDF или изображение)."
+            "✅ Вы зарегистрированы как учитель.\n\n"
+            "📄 Если вы отправляете PDF-файл, он должен содержать весь тест в одном файле.\n"
+            "🖼 Если вы отправляете изображение, вы сможете добавить ещё или перейти к вводу ключа.\n\n"
+            "Пожалуйста, отправьте файл теста (PDF или изображение)."
         )
         return HANDLE_TEST_UPLOAD
     else:
         await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.")
         return ConversationHandler.END
 
+# ⬇ Загрузка файла теста
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
     test_id = context.user_data.get("test_id")
@@ -76,12 +79,32 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_path = test_dir / file_name
     await file_obj.download_to_drive(custom_path=str(file_path))
 
+    keyboard = [["➕ Добавить ещё изображение", "✅ Ввести ключ ответов"]]
     await update.message.reply_text(
-        f"✅ Тест сохранён как *{file_name}*.\nКод теста: `{test_id}`",
+        f"✅ Файл *{file_name}* сохранён.\nКод теста: `{test_id}`\n\n"
+        "Что хотите сделать дальше?",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         parse_mode="Markdown"
     )
-    return ConversationHandler.END
+    return AWAIT_NEXT_ACTION
 
+# ⬇ Обработка действия после загрузки файла
+async def await_next_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    choice = update.message.text
+    if choice == "➕ Добавить ещё изображение":
+        await update.message.reply_text("Пожалуйста, отправьте дополнительное изображение теста.")
+        return HANDLE_TEST_UPLOAD
+    elif choice == "✅ Ввести ключ ответов":
+        await update.message.reply_text(
+            "Введите ключ с помощью команды:\n`/key <код_теста> <ключ_ответов>`",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
+        return AWAIT_NEXT_ACTION
+
+# ⬇ Сохранение ключа ответов
 async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("role") != "teacher":
         await update.message.reply_text("❌ Только учитель может сохранять ключи ответов.")
@@ -94,7 +117,6 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     test_code = context.args[0]
     answers = " ".join(context.args[1:])
 
-    # Ищем тест среди всех пользователей
     found = False
     for user_folder in BASE_DIR.iterdir():
         test_folder = user_folder / test_code
@@ -112,9 +134,11 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Ключ для теста *{test_code}* успешно сохранён.\nОтветы: `{answers}`", parse_mode="Markdown")
 
+# ⬇ Команда /reset
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await start(update, context)
 
+# ⬇ Точка входа
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -124,6 +148,7 @@ def main():
             SELECT_ROLE: [MessageHandler(filters.TEXT, select_role)],
             TEACHER_AUTH: [MessageHandler(filters.TEXT, teacher_auth)],
             HANDLE_TEST_UPLOAD: [MessageHandler(filters.Document.ALL | filters.PHOTO, handle_test_upload)],
+            AWAIT_NEXT_ACTION: [MessageHandler(filters.TEXT, await_next_action)],
         },
         fallbacks=[CommandHandler("reset", reset)],
     )

@@ -82,13 +82,20 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     test_code = context.args[0]
     answers = " ".join(context.args[1:])
 
-    file_path = f"test_data/{test_code}"
+    # Ищем тест среди всех пользователей
+found = False
+for user_folder in BASE_DIR.iterdir():
+    test_folder = user_folder / test_code
+    if test_folder.exists() and test_folder.is_dir():
+        found = True
+        break
 
-    if not os.path.exists(file_path):
-        await update.message.reply_text("❌ Тест с указанным кодом не найден. Убедитесь, что вы указали правильный код.")
-        return
+if not found:
+    await update.message.reply_text("❌ Тест с указанным кодом не найден. Убедитесь, что вы указали правильный код.")
+    return
 
-    key_path = f"{file_path}.key"
+
+    key_path = test_folder / "answers.key"
     with open(key_path, "w", encoding="utf-8") as f:
         f.write(answers)
 

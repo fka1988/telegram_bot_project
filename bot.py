@@ -18,7 +18,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 TEACHER_CODE = "2308"
 
 # Состояния
-SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE = range(5)
+SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE, STUDENT_ENTER_CODE, STUDENT_ENTER_ANSWERS = range(7)
 
 # Путь для хранения тестов
 BASE_DIR = Path("tests")
@@ -26,6 +26,7 @@ BASE_DIR.mkdir(exist_ok=True)
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
     await update.message.reply_text(
         "Выберите вашу роль:",
@@ -38,16 +39,15 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     text = update.message.text.strip()
 
     if text == "👨‍🏫 Я учитель":
-        await update.message.reply_text("Введите код для подтверждения:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("Введите код для подтверждения:")
         return TEACHER_AUTH
 
     elif text == "🧑‍🎓 Я ученик":
         context.user_data["role"] = "student"
         await update.message.reply_text(
-            "✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:",
-            reply_markup=ReplyKeyboardRemove()
+            "✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:"
         )
-        return ConversationHandler.END
+        return STUDENT_ENTER_CODE
 
     else:
         await update.message.reply_text("Пожалуйста, выберите одну из ролей с клавиатуры.")
@@ -65,13 +65,12 @@ async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return HANDLE_TEST_UPLOAD
     else:
+        await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.")
         context.user_data["role"] = "student"
-        await update.message.reply_text(
-            "❌ Неверный код. Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:"
-        )
-        return ConversationHandler.END
+        await update.message.reply_text("Пожалуйста, введите код теста:")
+        return STUDENT_ENTER_CODE
 
-# Обработка загрузки файлов
+# Обработка загрузки тестов (PDF или изображений)
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
     test_id = context.user_data["test_id"]
@@ -94,7 +93,7 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return ADD_OR_KEY
 
-# Добавить ещё или ввести ключ
+# Обработка варианта после загрузки
 async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
 
@@ -113,41 +112,88 @@ async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return ADD_OR_KEY
 
-# Сохраняем ключ + спрашиваем формат обратной связи
+# Ввод ключа и формат обратной связи
 async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    answers = update.message.text.strip()
-    context.user_data["answers"] = answers
-
-    user_id = update.message.from_user.id
-    test_id = context.user_data["test_id"]
-    test_dir = BASE_DIR / str(user_id) / test_id
-    test_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(test_dir / "answers.key", "w", encoding="utf-8") as f:
-        f.write(answers)
-
-    count = len(answers)
+    context.user_data["answers"] = update.message.text.strip()
 
     keyboard = [
         ["📊 Короткий (только результат)"],
         ["📋 Развернутый (верно/неверно)"],
         ["📘 Полный (верно/неверно + правильный ответ)"]
     ]
-
     await update.message.reply_text(
-        f"✅ Ключ для теста {test_id} успешно сохранён.\nОтветы: {answers}\nТест состоит из {count} ответов на вопросы.\n\nВыберите формат обратной связи для ученика:",
+        "Выберите формат обратной связи для ученика:",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ConversationHandler.END
 
-# Команда /key (альтернативный способ сохранения ключа)
+# Ученики: ввод кода теста
+async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    test_code = update.message.text.strip()
+    found = False
+    file_list = []
+
+    for user_folder in BASE_DIR.iterdir():
+        test_folder = user_folder / test_code
+        if test_folder.exists():
+            found = True
+            context.user_data["test_code"] = test_code
+            for file in test_folder.iterdir():
+                if file.suffix in [".pdf", ".jpg", ".jpeg", ".png"]:
+                    file_list.append(file)
+            break
+
+    if not found:
+        await update.message.reply_text("❌ Тест с таким кодом не найден. Попробуйте снова:")
+        return STUDENT_ENTER_CODE
+
+    # Отправка файлов
+    for file in file_list:
+        if file.suffix == ".pdf":
+            await update.message.reply_document(document=open(file, "rb"))
+        else:
+            await update.message.reply_photo(photo=open(file, "rb"))
+
+    await update.message.reply_text("📨 Пожалуйста, отправьте свои ответы (например: abcdabcdabcd):")
+    return STUDENT_ENTER_ANSWERS
+
+# Ученики: обработка ответов
+async def student_enter_answers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_answers = update.message.text.strip().lower()
+    test_code = context.user_data.get("test_code")
+    key = None
+
+    for user_folder in BASE_DIR.iterdir():
+        test_folder = user_folder / test_code
+        if test_folder.exists():
+            key_path = test_folder / "answers.key"
+            if key_path.exists():
+                with open(key_path, "r", encoding="utf-8") as f:
+                    key = f.read().strip().lower()
+                break
+
+    if not key:
+        await update.message.reply_text("❌ Ключ для этого теста не найден. Сообщите учителю.")
+        return ConversationHandler.END
+
+    if len(user_answers) != len(key):
+        await update.message.reply_text(f"⚠️ Количество ответов не совпадает. Ожидается {len(key)} символов.")
+        return STUDENT_ENTER_ANSWERS
+
+    correct = sum(1 for a, b in zip(user_answers, key) if a == b)
+    total = len(key)
+    await update.message.reply_text(f"✅ Ваш результат: {correct} из {total}")
+
+    return ConversationHandler.END
+
+# Команда /key (ручное сохранение ключа)
 async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("role") != "teacher":
         await update.message.reply_text("❌ Только учитель может сохранять ключи.")
         return
 
     if len(context.args) < 2:
-        await update.message.reply_text("❗ Формат:\n/key <код_теста> <ключ_ответов>")
+        await update.message.reply_text("❗ Формат:\n`/key <код_теста> <ключ_ответов>`", parse_mode="Markdown")
         return
 
     test_code, answers = context.args[0], "".join(context.args[1:])
@@ -172,12 +218,13 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Ключ для теста {test_code} успешно сохранён.\nОтветы: {answers}\nТест состоит из {count} ответов на вопросы."
     )
 
-# Сброс
+# Команда /reset
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
+    await update.message.reply_text("🔄 Сессия сброшена.")
     return await start(update, context)
 
-# Запуск
+# Основной запуск
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -189,6 +236,8 @@ def main():
             HANDLE_TEST_UPLOAD: [MessageHandler(filters.Document.ALL | filters.PHOTO, handle_test_upload)],
             ADD_OR_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_or_enter_key)],
             ENTER_FEEDBACK_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_feedback_mode)],
+            STUDENT_ENTER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, student_enter_code)],
+            STUDENT_ENTER_ANSWERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, student_enter_answers)],
         },
         fallbacks=[CommandHandler("reset", reset)],
     )

@@ -83,17 +83,16 @@ async def save_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answers = " ".join(context.args[1:])
 
     # Ищем тест среди всех пользователей
-found = False
-for user_folder in BASE_DIR.iterdir():
-    test_folder = user_folder / test_code
-    if test_folder.exists() and test_folder.is_dir():
-        found = True
-        break
+    found = False
+    for user_folder in BASE_DIR.iterdir():
+        test_folder = user_folder / test_code
+        if test_folder.exists() and test_folder.is_dir():
+            found = True
+            break
 
-if not found:
-    await update.message.reply_text("❌ Тест с указанным кодом не найден. Убедитесь, что вы указали правильный код.")
-    return
-
+    if not found:
+        await update.message.reply_text("❌ Тест с указанным кодом не найден. Убедитесь, что вы указали правильный код.")
+        return
 
     key_path = test_folder / "answers.key"
     with open(key_path, "w", encoding="utf-8") as f:
@@ -101,10 +100,11 @@ if not found:
 
     await update.message.reply_text(f"✅ Ключ для теста *{test_code}* успешно сохранён.\nОтветы: `{answers}`", parse_mode="Markdown")
 
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await start(update, context)
 # Создание папки для хранения ключей ответов
-Path("test_data").mkdir(exist_ok=True)
+
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 

@@ -120,8 +120,8 @@ def main():
 
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("reset", reset))
-    application.add_handler(CommandHandler("key", save_key))
-    
+    application.add_handler(CommandHandler("key", save_key))  # <-- перемещено выше run_polling
+
     application.run_polling()
     
 

@@ -3,6 +3,7 @@ import logging
 import random
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
@@ -24,7 +25,7 @@ SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE, 
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
 
-# Команда /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     keyboard = [["👨‍🏫 Я учитель", "🧑‍🎓 Я ученик"]]
@@ -41,19 +42,15 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if text == "👨‍🏫 Я учитель":
         await update.message.reply_text("Введите код для подтверждения:")
         return TEACHER_AUTH
-
     elif text == "🧑‍🎓 Я ученик":
         context.user_data["role"] = "student"
-        await update.message.reply_text(
-            "✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:"
-        )
+        await update.message.reply_text("✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:")
         return STUDENT_ENTER_CODE
-
     else:
         await update.message.reply_text("Пожалуйста, выберите одну из ролей с клавиатуры.")
         return SELECT_ROLE
 
-# Аутентификация учителя
+# Проверка кода учителя
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text == TEACHER_CODE:
         context.user_data["role"] = "teacher"
@@ -69,7 +66,7 @@ async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data["role"] = "student"
         return STUDENT_ENTER_CODE
 
-# Обработка загрузки тестов
+# Загрузка теста
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
     test_id = context.user_data["test_id"]
@@ -92,26 +89,23 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return ADD_OR_KEY
 
-# Загрузка ещё или ввод ключа
+# Добавить файл или ввести ключ
 async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
-
     if "ещё" in text:
         await update.message.reply_text("Отправьте следующее изображение.")
         return HANDLE_TEST_UPLOAD
-
     elif "ключ" in text.lower():
         await update.message.reply_text(
             "Введите ключ ответов (например: abcdabcdabcd):",
             reply_markup=ReplyKeyboardRemove()
         )
         return ENTER_FEEDBACK_MODE
-
     else:
         await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return ADD_OR_KEY
 
-# Ввод ключа и выбор обратной связи
+# Ввод ключа
 async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answers = update.message.text.strip()
     context.user_data["answers"] = answers
@@ -134,7 +128,7 @@ async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return ENTER_FEEDBACK_MODE
 
-# Выбор формата обратной связи
+# Выбор обратной связи и финальное сообщение
 async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     mode = update.message.text.strip()
     user_id = update.message.from_user.id
@@ -148,41 +142,35 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
     else:
         mode_value = "full"
 
-    from datetime import datetime  # добавь вверху файла, если ещё не добавлен
+    with open(test_dir / "feedback.mode", "w", encoding="utf-8") as f:
+        f.write(mode_value)
 
-with open(test_dir / "feedback.mode", "w", encoding="utf-8") as f:
-    f.write(mode_value)
+    count = len(context.user_data["answers"])
+    author_name = update.effective_user.full_name or update.effective_user.username or "Неизвестно"
 
-count = len(context.user_data["answers"])
+    now = datetime.now()
+    date_str = now.strftime("%d.%m.%Y")
+    time_str = now.strftime("%H:%M")
 
-# Информация о пользователе
-user = update.effective_user
-author_name = user.first_name or user.username or "Неизвестно"
+    summary = (
+        "✅ Тест добавлен в базу.\n"
+        f"👨‍🏫 АВТОР: {author_name}\n"
+        f"✍️ КОД ТЕСТА: {test_id}\n"
+        f"🔹 ВОПРОСОВ: {count} ta\n"
+        f"📆 {date_str} ⏰ {time_str}"
+    )
 
-# Дата и время
-now = datetime.now()
-date_str = now.strftime("%d.%m.%Y")
-time_str = now.strftime("%H:%M")
+    await update.message.reply_text(summary)
+    return ConversationHandler.END
 
-summary = (
-    "✅ Тест добавлен в базу.\n"
-    f"👨‍🏫 АВТОР: {author_name}\n"
-    f"✍️ КОД ТЕСТА: {test_id}\n"
-    f"🔹 ВОПРОСОВ: {count} ta\n"
-    f"📆 {date_str} ⏰ {time_str}"
-)
-
-await update.message.reply_text(summary)
-return ConversationHandler.END
-
-# Обработка ввода кода теста учеником
+# Ученик вводит код
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     test_code = update.message.text.strip()
     context.user_data["test_code"] = test_code
     await update.message.reply_text("📨 Пожалуйста, отправьте свои ответы (например: abcdabcdabcd):")
     return STUDENT_ENTER_ANSWERS
 
-# Проверка ответов ученика
+# Проверка ответов
 async def student_enter_answers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     student_answers = update.message.text.strip()
     test_code = context.user_data.get("test_code")
@@ -217,22 +205,17 @@ async def student_enter_answers(update: Update, context: ContextTypes.DEFAULT_TY
     if mode == "short":
         await update.message.reply_text(f"✅ Ваш результат: {correct_count} из {len(correct_answers)}")
     elif mode == "detailed":
-        result = []
-        for i, (sa, ca) in enumerate(zip(student_answers, correct_answers), 1):
-            mark = "✅" if sa == ca else "❌"
-            result.append(f"{i}) {mark}")
+        result = [f"{i}) {'✅' if sa == ca else '❌'}" for i, (sa, ca) in enumerate(zip(student_answers, correct_answers), 1)]
         await update.message.reply_text("\n".join(result))
     elif mode == "full":
-        result = []
-        for i, (sa, ca) in enumerate(zip(student_answers, correct_answers), 1):
-            mark = "✅" if sa == ca else f"❌ (правильный: {ca})"
-            result.append(f"{i}) {mark}")
+        result = [f"{i}) {'✅' if sa == ca else f'❌ (правильный: {ca})'}" for i, (sa, ca) in enumerate(zip(student_answers, correct_answers), 1)]
         await update.message.reply_text("\n".join(result))
     else:
         await update.message.reply_text("❗ Неизвестный формат обратной связи.")
+
     return ConversationHandler.END
 
-# /reset команда
+# /reset
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return await start(update, context)

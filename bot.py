@@ -148,12 +148,32 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
     else:
         mode_value = "full"
 
-    with open(test_dir / "feedback.mode", "w", encoding="utf-8") as f:
-        f.write(mode_value)
+    from datetime import datetime  # добавь вверху файла, если ещё не добавлен
 
-    count = len(context.user_data["answers"])
-    await update.message.reply_text(f"✅ Ключ сохранён. Тест состоит из {count} вопросов.")
-    return ConversationHandler.END
+with open(test_dir / "feedback.mode", "w", encoding="utf-8") as f:
+    f.write(mode_value)
+
+count = len(context.user_data["answers"])
+
+# Информация о пользователе
+user = update.effective_user
+author_name = user.first_name or user.username or "Неизвестно"
+
+# Дата и время
+now = datetime.now()
+date_str = now.strftime("%d.%m.%Y")
+time_str = now.strftime("%H:%M")
+
+summary = (
+    "✅ Тест добавлен в базу.\n"
+    f"👨‍🏫 АВТОР: {author_name}\n"
+    f"✍️ КОД ТЕСТА: {test_id}\n"
+    f"🔹 ВОПРОСОВ: {count} ta\n"
+    f"📆 {date_str} ⏰ {time_str}"
+)
+
+await update.message.reply_text(summary)
+return ConversationHandler.END
 
 # Обработка ввода кода теста учеником
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

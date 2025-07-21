@@ -160,8 +160,14 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
         f"📆 {date_str} ⏰ {time_str}"
     )
 
-    await update.message.reply_text(summary)
-    return ConversationHandler.END
+    await update.message.reply_text(
+        summary,
+        reply_markup=ReplyKeyboardMarkup(
+            [["🔁 Добавить ещё тест", "🏠 Вернуться на главную"]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+    )
+    return SELECT_ROLE  # возвращаемся к выбору роли (учитель может продолжить)
 
 # Ученик вводит код
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

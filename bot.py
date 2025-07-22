@@ -2,6 +2,7 @@ import os
 import logging
 import random
 from pathlib import Path
+from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove

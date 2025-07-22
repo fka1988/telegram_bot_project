@@ -2,9 +2,9 @@ import os
 import logging
 import random
 from pathlib import Path
-from supabase import create_client, Client
-from dotenv import load_dotenv
 from datetime import datetime
+from dotenv import load_dotenv
+from supabase import create_client, Client
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
@@ -17,17 +17,21 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # Загрузка переменных окружения
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-TEACHER_CODE = "2308"
-
-# Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+TEACHER_CODE = "2308"
+
+# Проверка ключей
+if not BOT_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Переменные окружения BOT_TOKEN, SUPABASE_URL или SUPABASE_KEY не заданы.")
+
+# Supabase клиент
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Состояния
 SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE, STUDENT_ENTER_CODE, STUDENT_ENTER_ANSWERS = range(7)
 
-# Путь для хранения локальных файлов
+# Локальное хранилище файлов
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
 
@@ -59,7 +63,7 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await teacher_info(update, context)
         return SELECT_ROLE
     else:
-        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
+        await update.message.reply_text("Пожалуйста, выберите одну из предложенных опций.")
         return SELECT_ROLE
 
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -95,7 +99,7 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     file = update.message.document or (update.message.photo[-1] if update.message.photo else None)
     if not file:
-        await update.message.reply_text("Пожалуйста, отправьте PDF-файл или изображение.")
+        await update.message.reply_text("Пожалуйста, отправьте PDF или изображение.")
         return HANDLE_TEST_UPLOAD
 
     file_obj = await file.get_file()
@@ -121,7 +125,7 @@ async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return ENTER_FEEDBACK_MODE
     else:
-        await update.message.reply_text("Выберите вариант.")
+        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return ADD_OR_KEY
 
 async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -164,20 +168,16 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
 
     count = len(context.user_data["answers"])
     author_name = update.effective_user.full_name or update.effective_user.username or "Неизвестно"
-
     now = datetime.now()
-    date_str = now.strftime("%d.%m.%Y")
-    time_str = now.strftime("%H:%M")
 
     await update.message.reply_text(
-        f"✅ Тест добавлен.\nАвтор: {author_name}\nКод: {test_id}\nВопросов: {count}\n📆 {date_str} ⏰ {time_str}",
+        f"✅ Тест добавлен.\nАвтор: {author_name}\nКод: {test_id}\nВопросов: {count}\n📆 {now.strftime('%d.%m.%Y')} ⏰ {now.strftime('%H:%M')}",
         reply_markup=ReplyKeyboardMarkup(
             [["✅ Добавить тест"], ["📘 Мои тесты"], ["👤 О себе"]],
             resize_keyboard=True
         )
     )
 
-    # Сохраняем в Supabase
     try:
         supabase.table("tests").insert({
             "test_id": test_id,
@@ -185,16 +185,16 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
             "answers": context.user_data["answers"],
             "feedback_mode": mode_value,
             "created_at": now.isoformat(),
-            "author_name": author_name,
+            "author_name": author_name
         }).execute()
+        logging.info(f"Тест {test_id} успешно сохранён в Supabase.")
     except Exception as e:
         logging.warning(f"Ошибка сохранения в Supabase: {e}")
 
     return SELECT_ROLE
 
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    test_code = update.message.text.strip()
-    context.user_data["test_code"] = test_code
+    context.user_data["test_code"] = update.message.text.strip()
     await update.message.reply_text("Введите ваши ответы:")
     return STUDENT_ENTER_ANSWERS
 
@@ -246,7 +246,6 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     user_dir = BASE_DIR / str(user_id)
-
     if not user_dir.exists():
         await update.message.reply_text("У вас пока нет тестов.")
         return
@@ -265,8 +264,7 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             continue
         try:
             with open(key_path, "r", encoding="utf-8") as f:
-                answers = f.read().strip()
-            count = len(answers)
+                count = len(f.read().strip())
         except:
             count = "?"
         try:
@@ -274,23 +272,19 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 mode = f.read().strip()
         except:
             mode = "?"
-        try:
-            date_str = datetime.fromtimestamp(test_dir.stat().st_ctime).strftime("%d.%m.%Y")
-        except:
-            date_str = "неизв."
+        date_str = datetime.fromtimestamp(test_dir.stat().st_ctime).strftime("%d.%m.%Y")
         messages.append(f"📘 Тест {test_id}: {count} вопр. • Режим: {mode} • 📆 {date_str}")
 
     await update.message.reply_text("📚 Ваши тесты:\n\n" + "\n".join(messages))
 
 async def teacher_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    info = (
+    await update.message.reply_text(
         f"👤 Ваш профиль учителя:\n"
         f"Имя: {user.full_name}\n"
         f"Username: @{user.username or '—'}\n"
         f"ID: {user.id}"
     )
-    await update.message.reply_text(info)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()

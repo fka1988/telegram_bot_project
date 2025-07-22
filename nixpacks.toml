@@ -1,2 +1,8 @@
 [phases.setup]
-nixPkgs = ['openssl', 'pkg-config', 'python310Full', 'gcc']
+nixPkgs = ["python311", "openssl"]
+
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python bot.py"

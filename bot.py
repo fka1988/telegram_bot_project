@@ -2,8 +2,8 @@ import os
 import logging
 import random
 from pathlib import Path
-from datetime import datetime
 from dotenv import load_dotenv
+from datetime import datetime
 from supabase import create_client, Client
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -17,21 +17,17 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # Загрузка переменных окружения
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 TEACHER_CODE = "2308"
 
-# Проверка ключей
-if not BOT_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError("Переменные окружения BOT_TOKEN, SUPABASE_URL или SUPABASE_KEY не заданы.")
-
-# Supabase клиент
+# Supabase
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Состояния
 SELECT_ROLE, TEACHER_AUTH, HANDLE_TEST_UPLOAD, ADD_OR_KEY, ENTER_FEEDBACK_MODE, STUDENT_ENTER_CODE, STUDENT_ENTER_ANSWERS = range(7)
 
-# Локальное хранилище файлов
+# Путь для хранения файлов
 BASE_DIR = Path("tests")
 BASE_DIR.mkdir(exist_ok=True)
 
@@ -63,7 +59,7 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await teacher_info(update, context)
         return SELECT_ROLE
     else:
-        await update.message.reply_text("Пожалуйста, выберите одну из предложенных опций.")
+        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return SELECT_ROLE
 
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -99,7 +95,7 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     file = update.message.document or (update.message.photo[-1] if update.message.photo else None)
     if not file:
-        await update.message.reply_text("Пожалуйста, отправьте PDF или изображение.")
+        await update.message.reply_text("Пожалуйста, отправьте PDF-файл или изображение.")
         return HANDLE_TEST_UPLOAD
 
     file_obj = await file.get_file()
@@ -114,18 +110,15 @@ async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ADD_OR_KEY
 
 async def add_or_enter_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
     if "ещё" in text:
         await update.message.reply_text("Отправьте следующее изображение.")
         return HANDLE_TEST_UPLOAD
-    elif "ключ" in text.lower():
-        await update.message.reply_text(
-            "Введите ключ ответов (например: abcdabcd):",
-            reply_markup=ReplyKeyboardRemove()
-        )
+    elif "ключ" in text:
+        await update.message.reply_text("Введите ключ ответов (например: abcdabcd):", reply_markup=ReplyKeyboardRemove())
         return ENTER_FEEDBACK_MODE
     else:
-        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
+        await update.message.reply_text("Выберите вариант.")
         return ADD_OR_KEY
 
 async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -151,14 +144,14 @@ async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ENTER_FEEDBACK_MODE
 
 async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    mode = update.message.text.strip()
+    mode = update.message.text.strip().lower()
     user_id = update.message.from_user.id
     test_id = context.user_data["test_id"]
     test_dir = BASE_DIR / str(user_id) / test_id
 
     if "только результат" in mode:
         mode_value = "short"
-    elif "развернутый" in mode.lower():
+    elif "развернут" in mode:
         mode_value = "detailed"
     else:
         mode_value = "full"
@@ -168,10 +161,10 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
 
     count = len(context.user_data["answers"])
     author_name = update.effective_user.full_name or update.effective_user.username or "Неизвестно"
-    now = datetime.now()
 
+    now = datetime.now()
     await update.message.reply_text(
-        f"✅ Тест добавлен.\nАвтор: {author_name}\nКод: {test_id}\nВопросов: {count}\n📆 {now.strftime('%d.%m.%Y')} ⏰ {now.strftime('%H:%M')}",
+        f"✅ Тест добавлен.\nАвтор: {author_name}\nКод: {test_id}\nВопросов: {count}",
         reply_markup=ReplyKeyboardMarkup(
             [["✅ Добавить тест"], ["📘 Мои тесты"], ["👤 О себе"]],
             resize_keyboard=True
@@ -185,16 +178,16 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
             "answers": context.user_data["answers"],
             "feedback_mode": mode_value,
             "created_at": now.isoformat(),
-            "author_name": author_name
+            "author_name": author_name,
         }).execute()
-        logging.info(f"Тест {test_id} успешно сохранён в Supabase.")
     except Exception as e:
-        logging.warning(f"Ошибка сохранения в Supabase: {e}")
+        logging.warning(f"Ошибка Supabase: {e}")
 
     return SELECT_ROLE
 
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["test_code"] = update.message.text.strip()
+    test_code = update.message.text.strip()
+    context.user_data["test_code"] = test_code
     await update.message.reply_text("Введите ваши ответы:")
     return STUDENT_ENTER_ANSWERS
 
@@ -246,6 +239,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     user_dir = BASE_DIR / str(user_id)
+
     if not user_dir.exists():
         await update.message.reply_text("У вас пока нет тестов.")
         return
@@ -258,33 +252,28 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     messages = []
     for test_dir in test_dirs:
         test_id = test_dir.name
-        key_path = test_dir / "answers.key"
-        mode_path = test_dir / "feedback.mode"
-        if not key_path.exists():
-            continue
         try:
-            with open(key_path, "r", encoding="utf-8") as f:
-                count = len(f.read().strip())
-        except:
-            count = "?"
-        try:
-            with open(mode_path, "r", encoding="utf-8") as f:
+            with open(test_dir / "answers.key", "r", encoding="utf-8") as f:
+                answers = f.read().strip()
+            count = len(answers)
+            with open(test_dir / "feedback.mode", "r", encoding="utf-8") as f:
                 mode = f.read().strip()
+            date_str = datetime.fromtimestamp(test_dir.stat().st_ctime).strftime("%d.%m.%Y")
+            messages.append(f"📘 Тест {test_id}: {count} вопр. • Режим: {mode} • 📆 {date_str}")
         except:
-            mode = "?"
-        date_str = datetime.fromtimestamp(test_dir.stat().st_ctime).strftime("%d.%m.%Y")
-        messages.append(f"📘 Тест {test_id}: {count} вопр. • Режим: {mode} • 📆 {date_str}")
+            continue
 
     await update.message.reply_text("📚 Ваши тесты:\n\n" + "\n".join(messages))
 
 async def teacher_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    await update.message.reply_text(
+    info = (
         f"👤 Ваш профиль учителя:\n"
         f"Имя: {user.full_name}\n"
         f"Username: @{user.username or '—'}\n"
         f"ID: {user.id}"
     )
+    await update.message.reply_text(info)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()

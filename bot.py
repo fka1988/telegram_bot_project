@@ -1,3 +1,5 @@
+# bot.py
+
 import os
 import logging
 import random
@@ -128,7 +130,7 @@ async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return ENTER_FEEDBACK_MODE
 
-# Выбор обратной связи и финальное сообщение
+# Выбор обратной связи
 async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     mode = update.message.text.strip()
     user_id = update.message.from_user.id
@@ -147,7 +149,6 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
 
     count = len(context.user_data["answers"])
     author_name = update.effective_user.full_name or update.effective_user.username or "Неизвестно"
-
     now = datetime.now()
     date_str = now.strftime("%d.%m.%Y")
     time_str = now.strftime("%H:%M")
@@ -167,7 +168,7 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
             resize_keyboard=True, one_time_keyboard=True
         )
     )
-    return SELECT_ROLE  # возвращаемся к выбору роли (учитель может продолжить)
+    return SELECT_ROLE
 
 # Ученик вводит код
 async def student_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -226,7 +227,60 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return await start(update, context)
 
-# Запуск
+# /mytests
+async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    user_dir = BASE_DIR / str(user_id)
+
+    if not user_dir.exists():
+        await update.message.reply_text("У вас пока нет загруженных тестов.")
+        return
+
+    test_dirs = sorted(user_dir.iterdir())
+    if not test_dirs:
+        await update.message.reply_text("У вас пока нет загруженных тестов.")
+        return
+
+    mode_names = {
+        "short": "короткий",
+        "detailed": "развернутый",
+        "full": "полный"
+    }
+
+    messages = []
+    for test_dir in test_dirs:
+        test_id = test_dir.name
+        key_path = test_dir / "answers.key"
+        mode_path = test_dir / "feedback.mode"
+
+        if not key_path.exists():
+            continue
+
+        try:
+            with open(key_path, "r", encoding="utf-8") as f:
+                answers = f.read().strip()
+            count = len(answers)
+        except:
+            count = "?"
+
+        try:
+            with open(mode_path, "r", encoding="utf-8") as f:
+                mode_code = f.read().strip()
+            mode = mode_names.get(mode_code, "не указан")
+        except:
+            mode = "не указан"
+
+        try:
+            creation_time = datetime.fromtimestamp(test_dir.stat().st_ctime)
+            date_str = creation_time.strftime("%d.%m.%Y")
+        except:
+            date_str = "неизв."
+
+        messages.append(f"📘 Тест {test_id}: {count} вопр. • 📆 {date_str} • 🔧 Обратная связь: {mode}")
+
+    await update.message.reply_text("📚 Ваши тесты:\n\n" + "\n".join(messages))
+
+# main
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -249,6 +303,7 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("mytests", mytests))
     app.run_polling()
 
 if __name__ == "__main__":

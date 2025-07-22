@@ -192,7 +192,7 @@ async def handle_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Тест с таким кодом не найден.")
         return ENTER_TEST_CODE
 
-    for file in Path(test_path).iterdir():
+    for file in Path(context.user_data["test_path"]).iterdir():
         if file.suffix == ".pdf":
             await update.message.reply_document(file_path=file)
         elif file.suffix in [".jpg", ".jpeg", ".png"]:
@@ -308,4 +308,5 @@ if __name__ == "__main__":
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("reset", reset))
+
     app.run_polling()

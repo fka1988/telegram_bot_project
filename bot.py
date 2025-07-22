@@ -175,6 +175,11 @@ async def select_feedback_type(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_code_for_result"):
+        context.user_data.pop("awaiting_code_for_result")
+        await update.message.reply_text("Показ результата по этому тесту — в разработке.")
+        return STUDENT_MENU
+
     code = update.message.text.strip()
     found = False
     for teacher_folder in Path("tests").iterdir():
@@ -187,8 +192,6 @@ async def handle_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Тест с таким кодом не найден.")
         return ENTER_TEST_CODE
 
-    # Отправка файла ученику
-    test_path = context.user_data["test_path"]
     for file in Path(test_path).iterdir():
         if file.suffix == ".pdf":
             await update.message.reply_document(file_path=file)
@@ -245,6 +248,40 @@ async def handle_student_answers(update: Update, context: ContextTypes.DEFAULT_T
     return STUDENT_MENU
 
 
+async def show_student_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["Мои результаты", "Результат по коду"], ["О себе"]]
+    await update.message.reply_text(
+        "Главное меню ученика:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+    )
+    return STUDENT_MENU
+
+
+async def handle_student_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+
+    if text == "главное меню":
+        return await show_student_menu(update, context)
+
+    elif text == "мои результаты":
+        await update.message.reply_text("Ваши последние 3 результата (в разработке).")
+        return STUDENT_MENU
+
+    elif text == "результат по коду":
+        await update.message.reply_text("Введите код теста для просмотра результатов:")
+        context.user_data["awaiting_code_for_result"] = True
+        return ENTER_TEST_CODE
+
+    elif text == "о себе":
+        user = update.effective_user
+        await update.message.reply_text(f"Ваш Telegram ID: {user.id}")
+        return STUDENT_MENU
+
+    else:
+        await update.message.reply_text("Пожалуйста, выберите пункт меню.")
+        return STUDENT_MENU
+
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return await start(update, context)
@@ -263,13 +300,12 @@ if __name__ == "__main__":
             SELECT_FEEDBACK_TYPE: [CallbackQueryHandler(select_feedback_type)],
             ENTER_TEST_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_test_code)],
             HANDLE_ANSWERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_student_answers)],
-            STUDENT_MENU: [],
+            STUDENT_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_student_menu)],
         },
         fallbacks=[CommandHandler("reset", reset)],
-        per_message=True,  # ✅ ВАЖНО: добавлено для отслеживания CallbackQueryHandler
+        per_message=True,
     )
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("reset", reset))
-
     app.run_polling()

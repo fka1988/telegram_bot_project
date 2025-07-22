@@ -1,5 +1,3 @@
-# bot.py
-
 import os
 import logging
 import random
@@ -48,25 +46,44 @@ async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         context.user_data["role"] = "student"
         await update.message.reply_text("✅ Вы зарегистрированы как ученик.\nПожалуйста, введите код теста:")
         return STUDENT_ENTER_CODE
+    elif text == "✅ Добавить тест":
+        return await start_test_upload(update, context)
+    elif text == "📘 Мои тесты":
+        await mytests(update, context)
+        return SELECT_ROLE
+    elif text == "👤 О себе":
+        await teacher_info(update, context)
+        return SELECT_ROLE
     else:
-        await update.message.reply_text("Пожалуйста, выберите одну из ролей с клавиатуры.")
+        await update.message.reply_text("Пожалуйста, выберите один из предложенных вариантов.")
         return SELECT_ROLE
 
 # Проверка кода учителя
 async def teacher_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text == TEACHER_CODE:
         context.user_data["role"] = "teacher"
-        test_id = str(random.randint(1000, 9999))
-        context.user_data["test_id"] = test_id
         await update.message.reply_text(
-            "✅ Вы зарегистрированы как учитель.\n\n📌 Если вы отправляете PDF-файл, убедитесь, что он содержит весь тест.\nЕсли у вас изображения — вы сможете добавить несколько.\n\n📎 Пожалуйста, отправьте файл теста (PDF или изображение).",
-            reply_markup=ReplyKeyboardRemove()
+            "✅ Вы зарегистрированы как учитель.",
+            reply_markup=ReplyKeyboardMarkup(
+                [["✅ Добавить тест"], ["📘 Мои тесты"], ["👤 О себе"]],
+                resize_keyboard=True
+            )
         )
-        return HANDLE_TEST_UPLOAD
+        return SELECT_ROLE
     else:
         await update.message.reply_text("Неверный код. Вы зарегистрированы как ученик.")
         context.user_data["role"] = "student"
         return STUDENT_ENTER_CODE
+
+# Старт загрузки теста
+async def start_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    test_id = str(random.randint(1000, 9999))
+    context.user_data["test_id"] = test_id
+    await update.message.reply_text(
+        "📎 Пожалуйста, отправьте файл теста (PDF или изображение).",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return HANDLE_TEST_UPLOAD
 
 # Загрузка теста
 async def handle_test_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -130,7 +147,7 @@ async def enter_feedback_mode(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return ENTER_FEEDBACK_MODE
 
-# Выбор обратной связи
+# Выбор обратной связи и финальное сообщение
 async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     mode = update.message.text.strip()
     user_id = update.message.from_user.id
@@ -149,6 +166,7 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
 
     count = len(context.user_data["answers"])
     author_name = update.effective_user.full_name or update.effective_user.username or "Неизвестно"
+
     now = datetime.now()
     date_str = now.strftime("%d.%m.%Y")
     time_str = now.strftime("%H:%M")
@@ -157,15 +175,15 @@ async def feedback_mode_selection(update: Update, context: ContextTypes.DEFAULT_
         "✅ Тест добавлен в базу.\n"
         f"👨‍🏫 АВТОР: {author_name}\n"
         f"✍️ КОД ТЕСТА: {test_id}\n"
-        f"🔹 ВОПРОСОВ: {count} ta\n"
+        f"🔹 ВОПРОСОВ: {count}\n"
         f"📆 {date_str} ⏰ {time_str}"
     )
 
     await update.message.reply_text(
         summary,
         reply_markup=ReplyKeyboardMarkup(
-            [["🔁 Добавить ещё тест", "🏠 Вернуться на главную"]],
-            resize_keyboard=True, one_time_keyboard=True
+            [["✅ Добавить тест"], ["📘 Мои тесты"], ["👤 О себе"]],
+            resize_keyboard=True
         )
     )
     return SELECT_ROLE
@@ -196,7 +214,6 @@ async def student_enter_answers(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         with open(test_folder / "answers.key", "r", encoding="utf-8") as f:
             correct_answers = f.read().strip()
-
         with open(test_folder / "feedback.mode", "r", encoding="utf-8") as f:
             mode = f.read().strip()
     except FileNotFoundError:
@@ -241,12 +258,6 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("У вас пока нет загруженных тестов.")
         return
 
-    mode_names = {
-        "short": "короткий",
-        "detailed": "развернутый",
-        "full": "полный"
-    }
-
     messages = []
     for test_dir in test_dirs:
         test_id = test_dir.name
@@ -265,10 +276,9 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         try:
             with open(mode_path, "r", encoding="utf-8") as f:
-                mode_code = f.read().strip()
-            mode = mode_names.get(mode_code, "не указан")
+                mode = f.read().strip()
         except:
-            mode = "не указан"
+            mode = "?"
 
         try:
             creation_time = datetime.fromtimestamp(test_dir.stat().st_ctime)
@@ -276,11 +286,22 @@ async def mytests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except:
             date_str = "неизв."
 
-        messages.append(f"📘 Тест {test_id}: {count} вопр. • 📆 {date_str} • 🔧 Обратная связь: {mode}")
+        messages.append(f"📘 Тест {test_id}: {count} вопр. • 🗂 Режим: {mode} • 📆 {date_str}")
 
     await update.message.reply_text("📚 Ваши тесты:\n\n" + "\n".join(messages))
 
-# main
+# 👤 О себе
+async def teacher_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    info = (
+        f"👤 Ваш профиль учителя:\n"
+        f"Имя: {user.full_name}\n"
+        f"Username: @{user.username or '—'}\n"
+        f"ID: {user.id}"
+    )
+    await update.message.reply_text(info)
+
+# Запуск
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -304,6 +325,7 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("mytests", mytests))
+
     app.run_polling()
 
 if __name__ == "__main__":

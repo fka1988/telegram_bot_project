@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
@@ -19,8 +18,10 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
+from db import init_db, save_test, get_test, get_teacher_tests
 
 load_dotenv()
+init_db()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CODE = "2308"
@@ -85,21 +86,16 @@ async def handle_teacher_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Пришлите файл теста (PDF или изображение):")
         return AWAITING_FILE
     elif text == "Мои тесты":
-        folder = f"tests/{update.effective_user.id}"
-        if not os.path.exists(folder):
+        teacher_id = update.effective_user.id
+        tests = get_teacher_tests(teacher_id)
+        if not tests:
             await update.message.reply_text("У вас пока нет загруженных тестов.")
-            return SHOW_MENU
-        message = "Ваши тесты:\n"
-        for code in os.listdir(folder):
-            test_path = os.path.join(folder, code)
-            if os.path.isdir(test_path):
-                key_path = os.path.join(test_path, "key.txt")
-                if os.path.exists(key_path):
-                    with open(key_path) as f:
-                        key = f.read().strip()
-                    count = len(key)
-                    message += f"Код: {code} — {count} вопросов\n"
-        await update.message.reply_text(message)
+        else:
+            message = "Ваши тесты:\n"
+            for code, key in tests:
+                count = len(key)
+                message += f"Код: {code} — {count} вопросов\n"
+            await update.message.reply_text(message)
         return SHOW_MENU
     elif text == "О себе":
         await update.message.reply_text(f"Ваш ID: {update.effective_user.id}")
@@ -135,11 +131,9 @@ async def handle_key_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTER_KEY
 
     test_code = context.user_data["test_code"]
-    user_id = update.effective_user.id
-    folder = f"tests/{user_id}/{test_code}"
-
-    with open(f"{folder}/key.txt", "w") as f:
-        f.write(key)
+    teacher_id = update.effective_user.id
+    
+    save_test(test_code, teacher_id, key, "short") # По умолчанию ставим "short"
 
     buttons = [
         [
@@ -162,11 +156,11 @@ async def select_feedback_type(update: Update, context: ContextTypes.DEFAULT_TYP
     feedback_type = query.data
 
     test_code = context.user_data["test_code"]
-    user_id = update.effective_user.id
-    folder = f"tests/{user_id}/{test_code}"
-
-    with open(f"{folder}/feedback.mode", "w") as f:
-        f.write(feedback_type)
+    teacher_id = update.effective_user.id
+    
+    cur.execute("UPDATE tests SET feedback_mode = %s WHERE test_code = %s AND teacher_id = %s",
+                 (feedback_type, test_code, teacher_id))
+    conn.commit()
 
     await query.edit_message_text(
         f"Формат обратной связи выбран: {feedback_type}. Тест полностью сохранён."
@@ -176,19 +170,19 @@ async def select_feedback_type(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def handle_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text.strip()
-    found = False
-    for teacher_folder in Path("tests").iterdir():
-        test_path = teacher_folder / code
-        if test_path.exists():
-            context.user_data["test_path"] = str(test_path)
-            found = True
-            break
-    if not found:
+    test_data = get_test(code)
+
+    if not test_data:
         await update.message.reply_text("Тест с таким кодом не найден.")
         return ENTER_TEST_CODE
+    
+    teacher_id, key, feedback_mode = test_data
+    context.user_data["test_data"] = {"key": key, "feedback_mode": feedback_mode}
+    
+    test_path = f"tests/{teacher_id}/{code}"
+    context.user_data["test_path"] = test_path
 
     # Отправка файла ученику
-    test_path = context.user_data["test_path"]
     for file in Path(test_path).iterdir():
         if file.suffix == ".pdf":
             await update.message.reply_document(file_path=file)
@@ -201,16 +195,14 @@ async def handle_test_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_student_answers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answers = update.message.text.strip().upper()
-    test_path = context.user_data["test_path"]
-    key_path = f"{test_path}/key.txt"
-    mode_path = f"{test_path}/feedback.mode"
+    test_data = context.user_data.get("test_data")
 
-    if not os.path.exists(key_path):
+    if not test_data:
         await update.message.reply_text("Ответы к тесту не найдены.")
         return STUDENT_MENU
-
-    with open(key_path) as f:
-        key = f.read().strip().upper()
+    
+    key = test_data["key"].strip().upper()
+    feedback_mode = test_data["feedback_mode"]
 
     if len(answers) != len(key):
         await update.message.reply_text(f"Вы ввели {len(answers)} ответов, а должно быть {len(key)}.")
@@ -224,11 +216,6 @@ async def handle_student_answers(update: Update, context: ContextTypes.DEFAULT_T
             detailed.append(f"{i}) ✅ {a}")
         else:
             detailed.append(f"{i}) ❌ {a} → {k}")
-
-    feedback_mode = "short"
-    if os.path.exists(mode_path):
-        with open(mode_path) as f:
-            feedback_mode = f.read().strip()
 
     if feedback_mode == "short":
         await update.message.reply_text(f"✅ Ваш результат: {correct} из {len(key)}.")
@@ -262,14 +249,4 @@ if __name__ == "__main__":
             ENTER_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_key_input)],
             SELECT_FEEDBACK_TYPE: [CallbackQueryHandler(select_feedback_type)],
             ENTER_TEST_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_test_code)],
-            HANDLE_ANSWERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_student_answers)],
-            STUDENT_MENU: [],
-        },
-        fallbacks=[CommandHandler("reset", reset)],
-        per_message=True,  # ✅ ВАЖНО: добавлено для отслеживания CallbackQueryHandler
-    )
-
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("reset", reset))
-
-    app.run_polling()
+            HANDLE_ANSWERS:

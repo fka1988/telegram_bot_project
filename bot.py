@@ -228,13 +228,13 @@ if __name__ == "__main__":
         fallbacks=[CommandHandler("reset", reset)],
         )
 
-        app.add_handler(conv_handler) 
-        app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(conv_handler) 
+    app.add_handler(CommandHandler("reset", reset))
 
-        app.run_webhook(
+    app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             path=BOT_TOKEN,  # 🔧 Это критически важно!
             webhook_url=WEBHOOK_URL
-        )
+    )
 

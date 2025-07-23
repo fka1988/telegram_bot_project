@@ -223,8 +223,7 @@ if __name__ == "__main__":
             STUDENT_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_student_menu)],
         },
         fallbacks=[CommandHandler("reset", reset)],
-        per_message=True,
-    )
+        )
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("reset", reset))

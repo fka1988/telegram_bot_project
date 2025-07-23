@@ -253,5 +253,4 @@ if __name__ == "__main__":
             STUDENT_MENU: [],
         },
         fallbacks=[CommandHandler("reset", reset)],
-        per_message=True,
-    ) # <-- Здесь должна быть закрывающая скобка для ConversationHandler
+        ) # <-- Здесь должна быть закрывающая скобка для ConversationHandler

@@ -12,7 +12,10 @@ from telegram.ext import (
 
 # Загрузка токена из переменных окружения
 load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL") + BOT_TOKEN
+PORT = int(os.environ.get("PORT", 8443))
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
